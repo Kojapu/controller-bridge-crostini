@@ -4,7 +4,8 @@
 Run:   python3 gui.py
 
 Click a binding, then press the keyboard key it should send. Use the ▾ menu next to it
-for mouse buttons or to clear it. The bridge runs as its own process, so you can close
+for mouse buttons or to clear it. "Editing" switches between the normal bindings and
+layers (bindings used while a hold button is held). The bridge runs as its own process, so you can close
 this window while playing and it keeps going (it uses no CPU while idle either way).
 """
 import copy
@@ -49,7 +50,9 @@ class App:
         self.capturing = None      # (setter, widget) while waiting for a key press
         self.proc = None           # running bridge process
         self.log_pos = 0
-        self.binding_widgets = []  # (getter, button widget) to refresh labels
+        self.binding_widgets = []  # (getter, button, ▾ menu, controller button or None)
+        self.editing = None        # index of the layer being edited, None = normal bindings
+        self.layer_only_widgets = []
 
         root.title("Controller Bridge")
         root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -76,7 +79,29 @@ class App:
 
         left = ttk.Frame(body)
         left.grid(row=0, column=0, sticky="n", padx=(0, 12))
-        row = 0
+        layer_bar = ttk.Frame(left)
+        layer_bar.grid(row=0, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        ttk.Label(layer_bar, text="Editing:").pack(side="left")
+        self.layer_box = ttk.Combobox(layer_bar, state="readonly", width=16)
+        self.layer_box.pack(side="left", padx=4)
+        self.layer_box.bind("<<ComboboxSelected>>", self.on_select_layer)
+        for text, cmd in [("Add layer", self.add_layer), ("Rename", self.rename_layer),
+                          ("Remove", self.remove_layer)]:
+            b = ttk.Button(layer_bar, text=text, command=cmd, takefocus=0)
+            b.pack(side="left", padx=1)
+            if text != "Add layer":
+                self.layer_only_widgets.append(b)
+        hold_bar = ttk.Frame(left)
+        hold_bar.grid(row=1, column=0, columnspan=3, sticky="w", pady=(2, 0))
+        ttk.Label(hold_bar, text="Layer is active while holding:").pack(side="left")
+        self.hold_box = ttk.Combobox(hold_bar, state="readonly", width=10,
+                                     values=profiles.BUTTONS)
+        self.hold_box.pack(side="left", padx=4)
+        self.hold_box.bind("<<ComboboxSelected>>", self.on_hold_change)
+        self.layer_only_widgets.append(self.hold_box)
+        self.layer_hint = ttk.Label(left, foreground="gray")
+        self.layer_hint.grid(row=2, column=0, columnspan=3, sticky="w")
+        row = 3
         for title, buttons in BUTTON_GROUPS:
             ttk.Label(left, text=title, font=("TkDefaultFont", 10, "bold")).grid(
                 row=row, column=0, columnspan=3, sticky="w", pady=(8, 2))
@@ -84,8 +109,8 @@ class App:
             for name, label in buttons:
                 ttk.Label(left, text=label, width=17).grid(row=row, column=0, sticky="w")
                 self.binding_row(left, row,
-                                 lambda n=name: self.profile["buttons"][n],
-                                 lambda v, n=name: self.set_value(("buttons", n), v))
+                                 lambda n=name: self.current_buttons()[n],
+                                 lambda v, n=name: self.set_binding(n, v), button=name)
                 row += 1
 
         right = ttk.Frame(body)
@@ -124,8 +149,7 @@ class App:
         self.stop_box = ttk.Combobox(settings, state="readonly", width=10,
                                      values=profiles.BUTTONS)
         self.stop_box.grid(row=3, column=1, sticky="w", **pad)
-        self.stop_box.bind("<<ComboboxSelected>>",
-                           lambda e: self.set_value(("stop_button",), self.stop_box.get()))
+        self.stop_box.bind("<<ComboboxSelected>>", self.on_stop_change)
 
         run = ttk.LabelFrame(right, text="Bridge", padding=6)
         run.pack(fill="x", pady=4)
@@ -139,7 +163,7 @@ class App:
         self.log = tk.Text(run, height=9, width=48, state="disabled", takefocus=0)
         self.log.grid(row=2, column=0, columnspan=2, pady=(4, 0))
 
-    def binding_row(self, parent, row, getter, setter):
+    def binding_row(self, parent, row, getter, setter, button=None):
         """A clickable binding (click, then press a key) plus a ▾ menu for mouse/clear."""
         btn = ttk.Button(parent, width=14, takefocus=0)
         btn.configure(command=lambda: self.start_capture(setter, btn))
@@ -152,7 +176,7 @@ class App:
         menu.add_command(label="Clear", command=lambda: setter(""))
         menu_btn["menu"] = menu
         menu_btn.grid(row=row, column=2, sticky="w")
-        self.binding_widgets.append((getter, btn))
+        self.binding_widgets.append((getter, btn, menu_btn, button))
         return [btn, menu_btn]
 
     # ---------- editing ----------
@@ -162,6 +186,115 @@ class App:
             target = target[part]
         target[path[-1]] = value
         self.refresh_fields()
+
+    def current_buttons(self):
+        if self.editing is None:
+            return self.profile["buttons"]
+        return self.profile["layers"][self.editing]["buttons"]
+
+    def set_binding(self, button, value):
+        self.current_buttons()[button] = value
+        self.refresh_fields()
+
+    def confirm_free(self, button, role):
+        """Ask before a bound button becomes a stop/hold button and loses its bindings."""
+        bound = [describe(self.profile["buttons"][button])] if self.profile["buttons"][button] else []
+        bound += [describe(l["buttons"][button]) for l in self.profile["layers"]
+                  if l["buttons"][button]]
+        if not bound:
+            return True
+        return messagebox.askyesno(
+            "Button is in use", f"{button} is bound to {', '.join(bound)}.\n\n"
+            f"Make it the {role} and clear those bindings?")
+
+    def free_button(self, button):
+        """A stop or hold button can't send keys, so clear its bindings everywhere."""
+        self.profile["buttons"][button] = ""
+        for layer in self.profile["layers"]:
+            layer["buttons"][button] = ""
+
+    def on_stop_change(self, _event):
+        stop = self.stop_box.get()
+        if any(layer["hold"] == stop for layer in self.profile["layers"]):
+            messagebox.showinfo("Button in use", f"{stop} is a layer's hold button.")
+            self.refresh_fields()
+            return
+        if not self.confirm_free(stop, "stop button"):
+            self.refresh_fields()
+            return
+        self.free_button(stop)
+        self.set_value(("stop_button",), stop)
+
+    # ---------- layers ----------
+    def on_select_layer(self, _event):
+        i = self.layer_box.current()
+        self.editing = None if i == 0 else i - 1
+        self.refresh_fields()
+
+    def free_hold_choices(self, exclude_layer=None):
+        used = {self.profile["stop_button"]}
+        used |= {l["hold"] for i, l in enumerate(self.profile["layers"]) if i != exclude_layer}
+        return [b for b in profiles.BUTTONS if b not in used]
+
+    def add_layer(self):
+        free = self.free_hold_choices()
+        if not free:
+            return
+        hold = "ZL" if "ZL" in free else free[0]
+        name = simpledialog.askstring("Add layer", f"Name for the layer (hold {hold} to use "
+                                      "it; you can change the button after):",
+                                      initialvalue=f"Layer {len(self.profile['layers']) + 1}",
+                                      parent=self.root)
+        if not name or not name.strip() or not self.confirm_free(hold, "hold button"):
+            return
+        self.free_button(hold)
+        self.profile["layers"].append(profiles.blank_layer(name.strip(), hold))
+        self.editing = len(self.profile["layers"]) - 1
+        self.refresh_fields()
+
+    def rename_layer(self):
+        if self.editing is None:
+            return
+        layer = self.profile["layers"][self.editing]
+        name = simpledialog.askstring("Rename layer", "New name:", initialvalue=layer["name"],
+                                      parent=self.root)
+        if name and name.strip():
+            layer["name"] = name.strip()
+            self.refresh_fields()
+
+    def remove_layer(self):
+        if self.editing is None:
+            return
+        layer = self.profile["layers"][self.editing]
+        if messagebox.askyesno("Remove layer", f"Remove layer '{layer['name']}'?"):
+            del self.profile["layers"][self.editing]
+            self.editing = None
+            self.refresh_fields()
+
+    def on_hold_change(self, _event):
+        hold = self.hold_box.get()
+        if hold not in self.free_hold_choices(exclude_layer=self.editing):
+            messagebox.showinfo("Button in use",
+                                f"{hold} is already the stop button or another layer's.")
+        elif self.confirm_free(hold, "hold button"):
+            self.free_button(hold)
+            self.profile["layers"][self.editing]["hold"] = hold
+        self.refresh_fields()
+
+    def display(self, getter, button):
+        """Text and state for a binding widget."""
+        p = self.profile
+        if button is None:  # stick direction: state comes from the stick mode
+            return describe(getter()), None
+        if button == p["stop_button"]:
+            return "stop button", "disabled"
+        for layer in p["layers"]:
+            if layer["hold"] == button:
+                return f"hold: {layer['name']}", "disabled"
+        value = getter()
+        if self.editing is not None and not value and p["buttons"][button]:
+            return f"({describe(p['buttons'][button])})", "normal"  # falls through
+        return describe(value), "normal"
 
     def start_capture(self, setter, widget):
         if self.capturing:
@@ -195,9 +328,25 @@ class App:
 
     def refresh_fields(self):
         p = self.profile
-        for getter, btn in self.binding_widgets:
+        if self.editing is not None and self.editing >= len(p["layers"]):
+            self.editing = None
+        self.layer_box["values"] = ["Normal bindings"] + [
+            f"{l['name']} (hold {l['hold']})" for l in p["layers"]]
+        self.layer_box.current(0 if self.editing is None else self.editing + 1)
+        in_layer = self.editing is not None
+        for w in self.layer_only_widgets:
+            w.configure(state=("readonly" if w is self.hold_box else "normal")
+                        if in_layer else "disabled")
+        self.hold_box.set(p["layers"][self.editing]["hold"] if in_layer else "")
+        self.layer_hint.configure(text="(in brackets) = not set in this layer, uses the normal binding"
+                                  if in_layer else "")
+        for getter, btn, menu_btn, button in self.binding_widgets:
+            text, state = self.display(getter, button)
             if not self.capturing or self.capturing[1] is not btn:
-                btn.configure(text=describe(getter()))
+                btn.configure(text=text)
+            if state:
+                btn.configure(state=state)
+                menu_btn.configure(state=state)
         for stick, var in self.mode_vars.items():
             var.set(p[stick]["mode"])
             state = "normal" if p[stick]["mode"] == "keys" else "disabled"
@@ -238,6 +387,7 @@ class App:
             ids = [pid for pid, _ in self.profile_list]
             self.profile_box.current(ids.index(profile_id))
         self.saved = copy.deepcopy(self.profile)
+        self.editing = None
         self.refresh_fields()
 
     def confirm_discard(self):

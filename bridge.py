@@ -215,13 +215,19 @@ def run(profile, dry_run=False):
     sticks = {"left": profile["left_stick"], "right": profile["right_stick"]}
     for binding in profile["buttons"].values():
         out.resolve(binding)
+    for layer in profile["layers"]:
+        for binding in layer["buttons"].values():
+            out.resolve(binding)
     for stick in sticks.values():
         if stick["mode"] == "keys":
             for d in profiles.DIRECTIONS:
                 out.resolve(stick[d])
 
     # Precompute what the loop needs so each report costs as little as possible.
-    button_bindings = {b: k for b, k in profile["buttons"].items() if k}
+    base = profile["buttons"]
+    # Each layer as (hold button, full binding table); empty layer bindings fall through.
+    layers = [(layer["hold"], {b: layer["buttons"].get(b) or k for b, k in base.items()})
+              for layer in profile["layers"]]
     stop = profile["stop_button"]
     s = profile["settings"]
     threshold, deadzone, speed = s["stick_threshold"], s["mouse_deadzone"], s["mouse_speed"]
@@ -250,6 +256,7 @@ def run(profile, dry_run=False):
 
             last_state = None
             mouse_moving = False
+            held_with = {}  # button -> binding it got when pressed (kept until released)
             last_report = time.monotonic()
             while True:
                 r = read(dev)
@@ -269,7 +276,15 @@ def run(profile, dry_run=False):
                 if stop in pressed:
                     print(f"{stop} pressed - stopping.")
                     return
-                wanted = {button_bindings[b] for b in pressed if b in button_bindings}
+                # The first held layer wins; otherwise the normal bindings apply.
+                table = next((t for hold, t in layers if hold in pressed), base)
+                for b in list(held_with):
+                    if b not in pressed:
+                        del held_with[b]
+                for b in pressed:
+                    if b not in held_with:
+                        held_with[b] = table.get(b, "")
+                wanted = {k for k in held_with.values() if k}
 
                 positions = {"left": decode_stick(*r[6:9]), "right": decode_stick(*r[9:12])}
                 for name in key_sticks:

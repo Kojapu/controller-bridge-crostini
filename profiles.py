@@ -3,6 +3,9 @@
 A profile is one JSON file in the profiles/ folder, for example profiles/lego-batman.json.
 A binding is a string: an X11 key name ("u", "space", "Return", "Control_L", "Up"...),
 "mouse_left", "mouse_right", "mouse_middle", or "" for nothing.
+
+A profile can have layers: while a layer's hold button is held, its bindings replace the
+normal ones. Empty bindings in a layer fall through to the normal binding.
 """
 import copy
 import json
@@ -33,7 +36,12 @@ BLANK_PROFILE = {
     "right_stick": {"mode": "mouse", "up": "", "down": "", "left": "", "right": ""},
     "stop_button": "Home",
     "settings": dict(DEFAULT_SETTINGS),
+    "layers": [],
 }
+
+
+def blank_layer(name, hold):
+    return {"name": name, "hold": hold, "buttons": {b: "" for b in BUTTONS}}
 
 
 def slug(name):
@@ -66,6 +74,10 @@ def normalise(profile):
         out[stick].update(profile.get(stick, {}))
     out["stop_button"] = profile.get("stop_button", out["stop_button"])
     out["settings"].update(profile.get("settings", {}))
+    for layer in profile.get("layers", []):
+        full = blank_layer(str(layer.get("name", "Layer")), layer.get("hold", ""))
+        full["buttons"].update({b: str(k) for b, k in layer.get("buttons", {}).items()})
+        out["layers"].append(full)
     return out
 
 
@@ -83,6 +95,25 @@ def validate(profile):
         problems.append(f"Stop button {stop!r} is not a controller button")
     elif profile["buttons"].get(stop):
         problems.append(f"{stop} is the stop button, so it can't also be bound to a key")
+    holds = []
+    for layer in profile["layers"]:
+        name, hold = layer["name"], layer["hold"]
+        if hold not in BUTTONS:
+            problems.append(f"Layer '{name}': hold button {hold!r} is not a controller button")
+            continue
+        if hold == stop:
+            problems.append(f"Layer '{name}': {hold} is already the stop button")
+        if hold in holds:
+            problems.append(f"Layer '{name}': {hold} is already another layer's hold button")
+        holds.append(hold)
+        if profile["buttons"].get(hold) or layer["buttons"].get(hold):
+            problems.append(f"Layer '{name}': {hold} is its hold button, so it can't also "
+                            "be bound to a key")
+        if layer["buttons"].get(stop):
+            problems.append(f"Layer '{name}': {stop} is the stop button, so it can't be bound")
+        for b in layer["buttons"]:
+            if b not in BUTTONS:
+                problems.append(f"Layer '{name}': unknown controller button {b!r}")
     for key, value in profile["settings"].items():
         if not isinstance(value, (int, float)) or value <= 0:
             problems.append(f"Setting {key} must be a positive number")

@@ -35,6 +35,17 @@ Keep the sticks still for the first second (calibration), then click the game wi
 - **Save**: `*` in the title means unsaved changes.
 - **Start / Stop**: runs the bridge. **Dry run** shows presses in the log without sending them.
 
+## Layers
+
+A layer is a second set of bindings, active while you hold a chosen button (e.g. ZL).
+
+- **Add layer**: creates one. Pick its hold button under "Layer is active while holding".
+- **Editing** dropdown: switch between "Normal bindings" and your layers.
+- Bindings shown `(in brackets)` aren't set in the layer and use the normal binding.
+- A button pressed before the layer switches keeps its original key until released.
+- Sticks always use the normal bindings.
+- The hold button sends no key itself.
+
 You can close the GUI while playing. The bridge keeps running.
 
 ## Stop
