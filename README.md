@@ -1,6 +1,20 @@
 # Controller Bridge for Crostini
 
-Turns a wired Switch Pro Controller into keyboard and mouse input for Linux apps (e.g. Steam games) on a Chromebook.
+Turns a wired Switch Pro Controller into keyboard and mouse input for Linux apps (e.g. Steam games) in Crostini on a Chromebook.
+
+## Why
+
+Crostini can pass the controller through over USB, but Linux apps can't use it as a gamepad: the container has no `/dev/input`, `hidraw` or `uinput`. This bridge reads the controller over raw USB and sends key presses and mouse movement to the focused window instead.
+
+## Requirements
+
+- Chromebook with Linux (Crostini) turned on
+- Wired Nintendo Switch Pro Controller (USB ID `057e:2009`)
+- Python 3, `pyusb` and Tkinter:
+
+```bash
+sudo apt install python3-usb python3-tk
+```
 
 ## Before each session
 
@@ -18,12 +32,21 @@ python3 gui.py
 Or without the GUI:
 
 ```bash
-python3 bridge.py --profile lego-batman
-python3 bridge.py --list        # show profiles
-python3 bridge.py --dry-run     # show presses, send nothing
+python3 bridge.py                      # last used profile
+python3 bridge.py --profile <name>     # a specific profile
+python3 bridge.py --list               # show profiles
+python3 bridge.py --dry-run            # show presses, send nothing
 ```
 
 Keep the sticks still for the first second (calibration), then click the game window.
+
+## Setting up a game
+
+1. Find the game's keyboard controls (usually in its options or controls menu).
+2. In the GUI: **New** (or **Duplicate** an existing profile) and name it after the game.
+3. Bind each controller button to the matching key.
+4. **Save**, tick **Dry run**, **Start**, and check the log.
+5. Untick **Dry run**, **Start** again, and click the game window.
 
 ## Using the GUI
 
@@ -43,6 +66,8 @@ Keep the sticks still for the first second (calibration), then click the game wi
 - **Save**: `*` in the title means unsaved changes.
 - **Start / Stop**: runs the bridge. **Dry run** shows presses in the log without sending them.
 
+You can close the GUI while playing. The bridge keeps running.
+
 ## Layers
 
 A layer is a second set of bindings, active while you hold a chosen button (e.g. ZL).
@@ -54,8 +79,6 @@ A layer is a second set of bindings, active while you hold a chosen button (e.g.
 - Sticks always use the normal bindings.
 - The hold button sends no key itself.
 
-You can close the GUI while playing. The bridge keeps running.
-
 ## Stop
 
 - The profile's stop button (default **Home**), or
@@ -64,26 +87,30 @@ You can close the GUI while playing. The bridge keeps running.
 
 ## Profiles
 
-Stored in `profiles/*.json`. Included:
+Each profile is a JSON file in `profiles/`. Edit them with the GUI, or by hand. Key names are X11 key names (`a`, `space`, `Return`, `Escape`, `Shift_L`, `Control_L`, `Up`, …); mouse buttons are `mouse_left`, `mouse_middle`, `mouse_right`.
 
-- **LEGO Batman**: matches the game's keyboard controls.
+Included:
+
 - **Generic PC game**: WASD on the left stick, mouse on the right stick, ZR/ZL = left/right click.
+- **LEGO Batman**: see the example below.
 
-## LEGO Batman
+## Example: LEGO Batman: The Videogame
 
-Steam launch options: `PROTON_USE_WINED3D=1 %command%`
+The included `lego-batman` profile matches the game's keyboard controls:
 
-| Controller | Action |
-|---|---|
-| Left stick | Move |
-| B | Jump |
-| A | Special |
-| Y | Action |
-| X | Tag |
-| R / L | Character toggle up / down |
-| Plus | Start / pause |
-| Minus | Back |
-| D-pad | Menu cursor |
+| Controller | Key | Action |
+|---|---|---|
+| Left stick | W A S D | Move |
+| B | U | Jump |
+| A | J | Special |
+| Y | H | Action |
+| X | K | Tag |
+| R / L | Space / Left Ctrl | Character toggle up / down |
+| Plus | Enter | Start / pause |
+| Minus | Esc | Back |
+| D-pad | Arrow keys | Menu cursor |
+
+Tip: on an i3 Chromebook with 4 GB RAM, the game (Steam, Proton) ran smoothly with this launch option: `PROTON_USE_WINED3D=1 %command%`
 
 ## Troubleshooting
 
@@ -98,6 +125,18 @@ Steam launch options: `PROTON_USE_WINED3D=1 %command%`
 ## Limits
 
 - Games see a keyboard and mouse, not a gamepad. Steam Input and controller menus won't detect it.
+- Only the wired Switch Pro Controller is supported.
 - No rumble or motion controls.
 - Only one bridge can run at a time.
 - While the controller is passed to Linux, ChromeOS can't use it.
+- Uses about 5% of one CPU core while running, mostly spent in Crostini's virtual USB layer.
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `gui.py` | Profile editor and bridge launcher |
+| `bridge.py` | The bridge itself |
+| `profiles.py` | Loading, saving and checking profiles |
+| `probe.py` | Low-level controller test: prints raw button and stick values |
+| `profiles/` | One JSON file per game |
