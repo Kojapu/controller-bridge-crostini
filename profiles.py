@@ -6,6 +6,9 @@ A binding is a string: an X11 key name ("u", "space", "Return", "Control_L", "Up
 
 A profile can have layers: while a layer's hold button is held, its bindings replace the
 normal ones. Empty bindings in a layer fall through to the normal binding.
+
+A button can have a mode (in every layer): "turbo" repeats its key while held, "toggle"
+holds its key down on one press and releases it on the next.
 """
 import copy
 import json
@@ -22,11 +25,13 @@ BUTTONS = ["A", "B", "X", "Y", "L", "R", "ZL", "ZR", "Plus", "Minus", "Home", "C
 DIRECTIONS = ["up", "down", "left", "right"]
 STICK_MODES = ["keys", "mouse", "off"]
 MOUSE_BINDINGS = {"mouse_left": 1, "mouse_middle": 2, "mouse_right": 3}
+BUTTON_MODES = ["normal", "turbo", "toggle"]
 
 DEFAULT_SETTINGS = {
     "stick_threshold": 500,  # stick distance before a direction key is pressed (full ~1400)
     "mouse_deadzone": 250,   # stick distance before the mouse starts moving
     "mouse_speed": 20,       # pixels per report (~75 reports/second) at full push
+    "turbo_rate": 10,        # turbo presses per second (reports arrive ~75/s, so max ~15)
 }
 
 BLANK_PROFILE = {
@@ -37,6 +42,7 @@ BLANK_PROFILE = {
     "stop_button": "Home",
     "settings": dict(DEFAULT_SETTINGS),
     "layers": [],
+    "button_modes": {},      # e.g. {"B": "turbo"}; buttons not listed are "normal"
 }
 
 
@@ -78,6 +84,8 @@ def normalise(profile):
         full = blank_layer(str(layer.get("name", "Layer")), layer.get("hold", ""))
         full["buttons"].update({b: str(k) for b, k in layer.get("buttons", {}).items()})
         out["layers"].append(full)
+    out["button_modes"] = {b: m for b, m in profile.get("button_modes", {}).items()
+                           if m != "normal"}
     return out
 
 
@@ -114,6 +122,11 @@ def validate(profile):
         for b in layer["buttons"]:
             if b not in BUTTONS:
                 problems.append(f"Layer '{name}': unknown controller button {b!r}")
+    for b, mode in profile["button_modes"].items():
+        if b not in BUTTONS:
+            problems.append(f"Button mode for unknown controller button {b!r}")
+        elif mode not in BUTTON_MODES:
+            problems.append(f"{b}: mode must be one of {BUTTON_MODES}")
     for key, value in profile["settings"].items():
         if not isinstance(value, (int, float)) or value <= 0:
             problems.append(f"Setting {key} must be a positive number")

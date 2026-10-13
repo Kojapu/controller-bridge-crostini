@@ -29,9 +29,13 @@ Keep the sticks still for the first second (calibration), then click the game wi
 
 - **Profile dropdown**: pick a profile. **New / Duplicate / Rename / Delete** manage them.
 - **Change a binding**: click it, then press the key. Click again to cancel.
-- **▾ menu**: mouse left / middle / right click, or clear.
+- **▾ menu**: mouse left / middle / right click, clear, or the button's mode:
+  - **Normal**: key held while the button is held.
+  - **Turbo**: key pressed repeatedly while held (speed: "Turbo presses/second" in Settings).
+  - **Toggle**: one press holds the key down, the next press releases it.
+  - The mode shows next to the button and applies in every layer.
 - **Sticks**: keys (4 directions), mouse, or off.
-- **Settings**: stick-to-key threshold, mouse dead zone, mouse speed, stop button.
+- **Settings**: stick-to-key threshold, mouse dead zone, mouse speed, turbo speed, stop button.
 - **Save**: `*` in the title means unsaved changes.
 - **Start / Stop**: runs the bridge. **Dry run** shows presses in the log without sending them.
 

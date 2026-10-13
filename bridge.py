@@ -232,6 +232,10 @@ def run(profile, dry_run=False):
     s = profile["settings"]
     threshold, deadzone, speed = s["stick_threshold"], s["mouse_deadzone"], s["mouse_speed"]
     mouse_sticks = [name for name, st in sticks.items() if st["mode"] == "mouse"]
+    modes = profile["button_modes"]
+    turbo_buttons = {b for b, m in modes.items() if m == "turbo"}
+    toggle_buttons = {b for b, m in modes.items() if m == "toggle"}
+    turbo_half_period = 1 / (2 * s["turbo_rate"])  # key down for half, up for half
     key_sticks = [name for name, st in sticks.items() if st["mode"] == "keys"]
     stuck_count = 0
 
@@ -257,6 +261,9 @@ def run(profile, dry_run=False):
             last_state = None
             mouse_moving = False
             held_with = {}  # button -> binding it got when pressed (kept until released)
+            pressed_at = {}  # button -> time it was pressed (for turbo timing)
+            toggled = {}     # toggle button -> binding it is currently holding down
+            turbo_running = False
             last_report = time.monotonic()
             while True:
                 r = read(dev)
@@ -264,11 +271,11 @@ def run(profile, dry_run=False):
                     if time.monotonic() - last_report > STUCK_AFTER_S:
                         raise ControllerStuck()
                     continue
-                last_report = time.monotonic()
+                now = last_report = time.monotonic()
                 # Bytes 3-11 hold every button and stick. If they're identical to the last
-                # report and no stick is steering the mouse, there's nothing to do.
+                # report and nothing is time-based (mouse, turbo), there's nothing to do.
                 state = r[3:12]
-                if state == last_state and not mouse_moving:
+                if state == last_state and not mouse_moving and not turbo_running:
                     continue
                 last_state = state
 
@@ -282,9 +289,25 @@ def run(profile, dry_run=False):
                     if b not in pressed:
                         del held_with[b]
                 for b in pressed:
-                    if b not in held_with:
+                    if b not in held_with:  # just pressed
                         held_with[b] = table.get(b, "")
-                wanted = {k for k in held_with.values() if k}
+                        pressed_at[b] = now
+                        if b in toggle_buttons and held_with[b]:
+                            if b in toggled:
+                                del toggled[b]                 # second press: let go
+                            else:
+                                toggled[b] = held_with[b]      # first press: hold down
+                wanted = set(toggled.values())
+                turbo_running = False
+                for b, k in held_with.items():
+                    if not k or b in toggle_buttons:
+                        continue
+                    if b in turbo_buttons:
+                        turbo_running = True
+                        if int((now - pressed_at[b]) / turbo_half_period) % 2 == 0:
+                            wanted.add(k)
+                    else:
+                        wanted.add(k)
 
                 positions = {"left": decode_stick(*r[6:9]), "right": decode_stick(*r[9:12])}
                 for name in key_sticks:

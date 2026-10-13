@@ -4,7 +4,7 @@
 Run:   python3 gui.py
 
 Click a binding, then press the keyboard key it should send. Use the ▾ menu next to it
-for mouse buttons or to clear it. "Editing" switches between the normal bindings and
+for mouse buttons, turbo/toggle, or to clear it. "Editing" switches between the normal bindings and
 layers (bindings used while a hold button is held). The bridge runs as its own process, so you can close
 this window while playing and it keeps going (it uses no CPU while idle either way).
 """
@@ -34,7 +34,8 @@ MOUSE_LABELS = {"mouse_left": "Mouse left", "mouse_middle": "Mouse middle",
                 "mouse_right": "Mouse right"}
 SLIDERS = [("stick_threshold", "Stick → key threshold", 200, 1200),
            ("mouse_deadzone", "Mouse dead zone", 100, 800),
-           ("mouse_speed", "Mouse speed", 5, 60)]
+           ("mouse_speed", "Mouse speed", 5, 60),
+           ("turbo_rate", "Turbo presses/second", 2, 15)]
 
 
 def describe(binding):
@@ -53,6 +54,8 @@ class App:
         self.binding_widgets = []  # (getter, button, ▾ menu, controller button or None)
         self.editing = None        # index of the layer being edited, None = normal bindings
         self.layer_only_widgets = []
+        self.button_mode_vars = {}  # controller button -> StringVar for its ▾ menu
+        self.mode_labels = {}       # controller button -> "turbo"/"toggle" label
 
         root.title("Controller Bridge")
         root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -174,6 +177,16 @@ class App:
             menu.add_command(label=label, command=lambda v=value: setter(v))
         menu.add_separator()
         menu.add_command(label="Clear", command=lambda: setter(""))
+        if button:  # controller buttons (not stick directions) can be turbo/toggle
+            menu.add_separator()
+            var = tk.StringVar(value="normal")
+            self.button_mode_vars[button] = var
+            for mode in profiles.BUTTON_MODES:
+                menu.add_radiobutton(label=mode.capitalize(), value=mode, variable=var,
+                                     command=lambda b=button: self.set_mode(b))
+            mode_label = ttk.Label(parent, width=6, foreground="gray")
+            mode_label.grid(row=row, column=3, sticky="w")
+            self.mode_labels[button] = mode_label
         menu_btn["menu"] = menu
         menu_btn.grid(row=row, column=2, sticky="w")
         self.binding_widgets.append((getter, btn, menu_btn, button))
@@ -207,8 +220,17 @@ class App:
             "Button is in use", f"{button} is bound to {', '.join(bound)}.\n\n"
             f"Make it the {role} and clear those bindings?")
 
+    def set_mode(self, button):
+        mode = self.button_mode_vars[button].get()
+        if mode == "normal":
+            self.profile["button_modes"].pop(button, None)
+        else:
+            self.profile["button_modes"][button] = mode
+        self.refresh_fields()
+
     def free_button(self, button):
         """A stop or hold button can't send keys, so clear its bindings everywhere."""
+        self.profile["button_modes"].pop(button, None)
         self.profile["buttons"][button] = ""
         for layer in self.profile["layers"]:
             layer["buttons"][button] = ""
@@ -347,6 +369,10 @@ class App:
             if state:
                 btn.configure(state=state)
                 menu_btn.configure(state=state)
+            if button:
+                mode = p["button_modes"].get(button, "normal")
+                self.button_mode_vars[button].set(mode)
+                self.mode_labels[button].configure(text="" if mode == "normal" else mode)
         for stick, var in self.mode_vars.items():
             var.set(p[stick]["mode"])
             state = "normal" if p[stick]["mode"] == "keys" else "disabled"
