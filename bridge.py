@@ -10,7 +10,8 @@ Run:   python3 bridge.py                         (last-used profile)
        python3 bridge.py --list
        python3 bridge.py --dry-run               (print actions, send nothing)
 
-Stop with the profile's stop button (Home by default) or Ctrl+C.
+Stop with the profile's stop button (Home by default) or Ctrl+C. If the controller is
+unplugged or stops sending data, the bridge releases all keys and waits for it to come back.
 Keep the sticks still for the first second: the bridge measures their resting position.
 """
 import argparse
@@ -146,21 +147,42 @@ def mouse_step(x, y, centre, deadzone, speed):
     return axis(x - centre[0]), -axis(y - centre[1])
 
 
+STUCK_AFTER_S = 2.0   # no button data for this long while connected = controller is stuck
+WAIT_POLL_S = 1.0     # how often to look for the controller while waiting
+WAITING_MESSAGE = ("Waiting for the controller - plug it in and switch it on under "
+                   "ChromeOS Settings > Developers > Linux > Manage USB devices...")
+
+
+class ControllerStuck(Exception):
+    """The controller is connected but not sending button data."""
+
+
 def calibrate(dev, timeout_s=3.0):
     """Average the first few reports to find each stick's resting position."""
     samples = []
     deadline = time.monotonic() + timeout_s
     while len(samples) < CALIBRATION_REPORTS:
         if time.monotonic() > deadline:
-            # Seen on this Chromebook: the controller sometimes only sends all-zero packets
-            # until it is physically unplugged and plugged back in.
-            raise RuntimeError("The controller isn't sending button data. Unplug it, plug it "
-                               "back in, re-enable it under Manage USB devices, and try again.")
+            raise ControllerStuck()
         r = read(dev)
         if r is not None and r[0] == 0x30:
             samples.append(decode_stick(*r[6:9]) + decode_stick(*r[9:12]))
     avg = [sum(s[i] for s in samples) / len(samples) for i in range(4)]
     return (avg[0], avg[1]), (avg[2], avg[3])
+
+
+def find_controller():
+    return usb.core.find(idVendor=VENDOR_ID, idProduct=PRODUCT_ID)
+
+
+def wait_until(condition, message=None):
+    """Check condition() once a second until it returns something truthy, and return that."""
+    while not (result := condition()):
+        if message:
+            print(message, flush=True)
+            message = None  # say it once, not every second
+        time.sleep(WAIT_POLL_S)
+    return result
 
 
 def run(profile, dry_run=False):
@@ -180,80 +202,115 @@ def run(profile, dry_run=False):
     threshold, deadzone, speed = s["stick_threshold"], s["mouse_deadzone"], s["mouse_speed"]
     mouse_sticks = [name for name, st in sticks.items() if st["mode"] == "mouse"]
     key_sticks = [name for name, st in sticks.items() if st["mode"] == "keys"]
+    stuck_count = 0
 
-    dev = usb.core.find(idVendor=VENDOR_ID, idProduct=PRODUCT_ID)
-    if dev is None:
-        sys.exit("Controller not found. Is it plugged in and enabled under "
-                 "ChromeOS Settings > Developers > Linux > Manage USB devices?")
+    def play(dev):
+        """Drive one connection. Returns when the stop button is pressed.
+        Raises ControllerStuck, or usb.core.USBError if the controller goes away."""
+        nonlocal stuck_count
+        detached = False
+        try:
+            if dev.is_kernel_driver_active(INTERFACE):
+                dev.detach_kernel_driver(INTERFACE)
+                detached = True
+            usb.util.claim_interface(dev, INTERFACE)
 
-    detached = False
-    try:
-        if dev.is_kernel_driver_active(INTERFACE):
-            dev.detach_kernel_driver(INTERFACE)
-            detached = True
-        usb.util.claim_interface(dev, INTERFACE)
+            print("Handshaking with controller...")
+            handshake(dev)
+            print("Calibrating sticks - don't touch them...")
+            centres = dict(zip(("left", "right"), calibrate(dev)))
+            stuck_count = 0
+            print(f"Profile '{profile['name']}' running{' (dry run)' if dry_run else ''}. "
+                  f"Click the game window. Press {stop} or Ctrl+C to stop.", flush=True)
 
-        print("Handshaking with controller...")
-        handshake(dev)
-        print("Calibrating sticks - don't touch them...")
-        centres = dict(zip(("left", "right"), calibrate(dev)))
-        print(f"Profile '{profile['name']}' running{' (dry run)' if dry_run else ''}. "
-              f"Click the game window. Press {stop} or Ctrl+C to stop.", flush=True)
-
-        last_state = None
-        mouse_moving = False
-        while True:
-            r = read(dev)
-            if r is None or r[0] != 0x30:
-                continue
-            # Bytes 3-11 hold every button and stick. If they're identical to the last
-            # report and no stick is steering the mouse, there's nothing to do.
-            state = r[3:12]
-            if state == last_state and not mouse_moving:
-                continue
-            last_state = state
-
-            pressed = decode_buttons(r)
-            if stop in pressed:
-                print(f"{stop} pressed - stopping.")
-                break
-            wanted = {button_bindings[b] for b in pressed if b in button_bindings}
-
-            positions = {"left": decode_stick(*r[6:9]), "right": decode_stick(*r[9:12])}
-            for name in key_sticks:
-                st = sticks[name]
-                for d in stick_directions(*positions[name], centres[name], threshold):
-                    if st[d]:
-                        wanted.add(st[d])
-            changed = out.update(wanted)
-
+            last_state = None
             mouse_moving = False
-            for name in mouse_sticks:
-                dx, dy = mouse_step(*positions[name], centres[name], deadzone, speed)
-                if dx or dy:
-                    out.move(dx, dy)
-                    mouse_moving = changed = True
-            if changed:
-                out.flush()
+            last_report = time.monotonic()
+            while True:
+                r = read(dev)
+                if r is None or r[0] != 0x30:
+                    if time.monotonic() - last_report > STUCK_AFTER_S:
+                        raise ControllerStuck()
+                    continue
+                last_report = time.monotonic()
+                # Bytes 3-11 hold every button and stick. If they're identical to the last
+                # report and no stick is steering the mouse, there's nothing to do.
+                state = r[3:12]
+                if state == last_state and not mouse_moving:
+                    continue
+                last_state = state
+
+                pressed = decode_buttons(r)
+                if stop in pressed:
+                    print(f"{stop} pressed - stopping.")
+                    return
+                wanted = {button_bindings[b] for b in pressed if b in button_bindings}
+
+                positions = {"left": decode_stick(*r[6:9]), "right": decode_stick(*r[9:12])}
+                for name in key_sticks:
+                    st = sticks[name]
+                    for d in stick_directions(*positions[name], centres[name], threshold):
+                        if st[d]:
+                            wanted.add(st[d])
+                changed = out.update(wanted)
+
+                mouse_moving = False
+                for name in mouse_sticks:
+                    dx, dy = mouse_step(*positions[name], centres[name], deadzone, speed)
+                    if dx or dy:
+                        out.move(dx, dy)
+                        mouse_moving = changed = True
+                if changed:
+                    out.flush()
+        finally:
+            out.release_all()  # never leave a key or mouse button stuck down
+            # The controller may already be unplugged, so cleanup errors are expected.
+            try:
+                usb.util.release_interface(dev, INTERFACE)
+                if detached:
+                    dev.attach_kernel_driver(INTERFACE)
+            except usb.core.USBError:
+                pass
+            usb.util.dispose_resources(dev)
+
+    try:
+        while True:
+            dev = wait_until(find_controller, WAITING_MESSAGE)
+            try:
+                play(dev)
+                break  # stop button pressed
+            except ControllerStuck:
+                stuck_count += 1
+                if stuck_count == 1:
+                    # Tested on this Chromebook: a USB reset keeps the passthrough working.
+                    print("The controller isn't sending button data - resetting its USB "
+                          "connection...", flush=True)
+                    try:
+                        dev.reset()
+                    except usb.core.USBError:
+                        pass
+                    usb.util.dispose_resources(dev)
+                else:
+                    print("Still no button data. Unplug the controller, plug it back in and "
+                          "switch it on again under Manage USB devices.", flush=True)
+                    # A replug gives the controller a new USB address.
+                    old = (dev.bus, dev.address)
+                    wait_until(lambda: (d := find_controller()) is None
+                               or (d.bus, d.address) != old)
+                    stuck_count = 0
+            except usb.core.USBError as e:
+                if e.errno == 16:  # EBUSY: someone else has the controller claimed
+                    print("The controller is busy - is another bridge already running?")
+                    break
+                print(f"Controller disconnected ({e.strerror or e}). All keys released.",
+                      flush=True)
+                time.sleep(WAIT_POLL_S)
     except KeyboardInterrupt:
         print("Stopped.")
-    except usb.core.USBError as e:
-        if e.errno == 16:  # EBUSY: someone else has the controller claimed
-            print("The controller is busy - is another bridge already running?")
-        else:
-            print(f"USB error: {e}")
-    except RuntimeError as e:
-        print(e)
     finally:
-        out.release_all()  # never leave a key or mouse button stuck down
+        out.release_all()
         if out.x:
             out.x.close()
-        usb.util.release_interface(dev, INTERFACE)
-        if detached:
-            try:
-                dev.attach_kernel_driver(INTERFACE)
-            except usb.core.USBError:
-                print("Note: couldn't hand the controller back to Linux; unplug/replug to reset.")
 
 
 def main():

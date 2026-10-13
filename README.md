@@ -70,8 +70,9 @@ Steam launch options: `PROTON_USE_WINED3D=1 %command%`
 
 | Problem | Fix |
 |---|---|
-| "Controller not found" | Switch it on again under Manage USB devices. |
-| "Controller isn't sending button data" | Unplug, replug, switch it on again. If it happens after stopping with Home, set Capture as the stop button. |
+| "Waiting for the controller" | Switch it on again under Manage USB devices. The bridge continues by itself. |
+| "Controller disconnected" | All keys were released. Plug it back in and switch it on again; the bridge continues by itself. |
+| "Still no button data" | The automatic USB reset didn't help. Unplug, replug, switch it on again; the bridge continues by itself. If it happens after stopping with Home, set Capture as the stop button. |
 | "Controller is busy" | Another bridge is already running. Stop it first. |
 | Nothing happens in the game | Click the game window so it has focus. |
 
