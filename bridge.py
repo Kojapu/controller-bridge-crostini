@@ -19,7 +19,9 @@ import ctypes
 import signal
 import sys
 import time
+from pathlib import Path
 
+import usb.backend.libusb1
 import usb.core
 import usb.util
 
@@ -171,8 +173,31 @@ def calibrate(dev, timeout_s=3.0):
     return (avg[0], avg[1]), (avg[2], avg[3])
 
 
+def controller_address():
+    """(bus, device number) of the controller from the kernel's live list, or None."""
+    for d in Path("/sys/bus/usb/devices").iterdir():
+        try:
+            if (int((d / "idVendor").read_text(), 16) == VENDOR_ID
+                    and int((d / "idProduct").read_text(), 16) == PRODUCT_ID):
+                return int((d / "busnum").read_text()), int((d / "devnum").read_text())
+        except (OSError, ValueError):
+            continue  # hubs/interfaces without these files, or a device mid-removal
+    return None
+
+
 def find_controller():
-    return usb.core.find(idVendor=VENDOR_ID, idProduct=PRODUCT_ID)
+    """Open the controller with libusb, or return None if it isn't plugged in.
+
+    Found on this Chromebook: libusb builds its device list once and never hears about
+    replugs inside Crostini, so a long-running bridge kept waiting for a controller that
+    was already back. The kernel's list in /sys is always current, so check that, and
+    only then start a fresh libusb context (pyusb 1.2 caches one in _lib_object).
+    """
+    if controller_address() is None:
+        return None
+    usb.backend.libusb1._lib_object = None
+    return usb.core.find(idVendor=VENDOR_ID, idProduct=PRODUCT_ID,
+                         backend=usb.backend.libusb1.get_backend())
 
 
 def wait_until(condition, message=None):
@@ -295,8 +320,7 @@ def run(profile, dry_run=False):
                           "switch it on again under Manage USB devices.", flush=True)
                     # A replug gives the controller a new USB address.
                     old = (dev.bus, dev.address)
-                    wait_until(lambda: (d := find_controller()) is None
-                               or (d.bus, d.address) != old)
+                    wait_until(lambda: controller_address() != old)
                     stuck_count = 0
             except usb.core.USBError as e:
                 if e.errno == 16:  # EBUSY: someone else has the controller claimed
