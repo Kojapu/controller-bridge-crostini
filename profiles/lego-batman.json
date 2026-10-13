@@ -1,0 +1,14 @@
+{
+  "name": "LEGO Batman",
+  "buttons": {
+    "A": "j", "B": "u", "X": "k", "Y": "h",
+    "L": "Control_L", "R": "space", "ZL": "", "ZR": "",
+    "Plus": "Return", "Minus": "Escape", "Home": "", "Capture": "",
+    "LStick": "", "RStick": "",
+    "Up": "Up", "Down": "Down", "Left": "Left", "Right": "Right"
+  },
+  "left_stick": {"mode": "keys", "up": "w", "down": "s", "left": "a", "right": "d"},
+  "right_stick": {"mode": "off", "up": "", "down": "", "left": "", "right": ""},
+  "stop_button": "Home",
+  "settings": {"stick_threshold": 500, "mouse_deadzone": 250, "mouse_speed": 20}
+}

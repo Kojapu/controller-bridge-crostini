@@ -1,0 +1,6 @@
+# Python's compiled cache
+__pycache__/
+# Runtime files written by the bridge/GUI
+bridge.log
+bridge-config.json
+profiles/*.json.tmp

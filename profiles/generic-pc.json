@@ -1,0 +1,14 @@
+{
+  "name": "Generic PC game",
+  "buttons": {
+    "A": "e", "B": "space", "X": "r", "Y": "f",
+    "L": "q", "R": "Tab", "ZL": "mouse_right", "ZR": "mouse_left",
+    "Plus": "Escape", "Minus": "m", "Home": "", "Capture": "",
+    "LStick": "Shift_L", "RStick": "c",
+    "Up": "1", "Down": "2", "Left": "3", "Right": "4"
+  },
+  "left_stick": {"mode": "keys", "up": "w", "down": "s", "left": "a", "right": "d"},
+  "right_stick": {"mode": "mouse", "up": "", "down": "", "left": "", "right": ""},
+  "stop_button": "Home",
+  "settings": {"stick_threshold": 500, "mouse_deadzone": 250, "mouse_speed": 20}
+}
