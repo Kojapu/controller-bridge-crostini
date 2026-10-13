@@ -9,6 +9,9 @@ normal ones. Empty bindings in a layer fall through to the normal binding.
 
 A button can have a mode (in every layer): "turbo" repeats its key while held, "toggle"
 holds its key down on one press and releases it on the next.
+
+A stick in "keys" mode can have a speed key, held along with the direction keys either
+on a full push (run, e.g. Shift) or on a light push (walk, for games that run by default).
 """
 import copy
 import json
@@ -26,19 +29,23 @@ DIRECTIONS = ["up", "down", "left", "right"]
 STICK_MODES = ["keys", "mouse", "off"]
 MOUSE_BINDINGS = {"mouse_left": 1, "mouse_middle": 2, "mouse_right": 3}
 BUTTON_MODES = ["normal", "turbo", "toggle"]
+SPEED_KEY_ON = ["full", "light"]
 
 DEFAULT_SETTINGS = {
     "stick_threshold": 500,  # stick distance before a direction key is pressed (full ~1400)
     "mouse_deadzone": 250,   # stick distance before the mouse starts moving
     "mouse_speed": 20,       # pixels per report (~75 reports/second) at full push
     "turbo_rate": 10,        # turbo presses per second (reports arrive ~75/s, so max ~15)
+    "full_push": 1100,       # stick distance counted as a full push (for speed keys)
 }
 
 BLANK_PROFILE = {
     "name": "New profile",
     "buttons": {b: "" for b in BUTTONS},
-    "left_stick": {"mode": "keys", "up": "w", "down": "s", "left": "a", "right": "d"},
-    "right_stick": {"mode": "mouse", "up": "", "down": "", "left": "", "right": ""},
+    "left_stick": {"mode": "keys", "up": "w", "down": "s", "left": "a", "right": "d",
+                   "speed_key": "", "speed_key_on": "full"},
+    "right_stick": {"mode": "mouse", "up": "", "down": "", "left": "", "right": "",
+                    "speed_key": "", "speed_key_on": "full"},
     "stop_button": "Home",
     "settings": dict(DEFAULT_SETTINGS),
     "layers": [],
@@ -98,6 +105,8 @@ def validate(profile):
     for stick in ("left_stick", "right_stick"):
         if profile[stick]["mode"] not in STICK_MODES:
             problems.append(f"{stick}: mode must be one of {STICK_MODES}")
+        if profile[stick]["speed_key_on"] not in SPEED_KEY_ON:
+            problems.append(f"{stick}: speed_key_on must be one of {SPEED_KEY_ON}")
     stop = profile["stop_button"]
     if stop not in BUTTONS:
         problems.append(f"Stop button {stop!r} is not a controller button")
@@ -130,6 +139,8 @@ def validate(profile):
     for key, value in profile["settings"].items():
         if not isinstance(value, (int, float)) or value <= 0:
             problems.append(f"Setting {key} must be a positive number")
+    if profile["settings"]["full_push"] <= profile["settings"]["stick_threshold"]:
+        problems.append("'Full push at' must be larger than the stick-to-key threshold")
     return problems
 
 

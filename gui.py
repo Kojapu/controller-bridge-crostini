@@ -32,10 +32,12 @@ BUTTON_GROUPS = [
 ]
 MOUSE_LABELS = {"mouse_left": "Mouse left", "mouse_middle": "Mouse middle",
                 "mouse_right": "Mouse right"}
+SPEED_KEY_LABELS = {"full": "pushed fully (run)", "light": "pushed lightly (walk)"}
 SLIDERS = [("stick_threshold", "Stick → key threshold", 200, 1200),
            ("mouse_deadzone", "Mouse dead zone", 100, 800),
            ("mouse_speed", "Mouse speed", 5, 60),
-           ("turbo_rate", "Turbo presses/second", 2, 15)]
+           ("turbo_rate", "Turbo presses/second", 2, 15),
+           ("full_push", "Full push at (run/walk)", 600, 1400)]
 
 
 def describe(binding):
@@ -56,6 +58,7 @@ class App:
         self.layer_only_widgets = []
         self.button_mode_vars = {}  # controller button -> StringVar for its ▾ menu
         self.mode_labels = {}       # controller button -> "turbo"/"toggle" label
+        self.speed_on_boxes = {}    # stick -> "held when" combobox
 
         root.title("Controller Bridge")
         root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -120,9 +123,11 @@ class App:
         right.grid(row=0, column=1, sticky="n")
         self.mode_vars = {}
         self.direction_widgets = {}
+        sticks_row = ttk.Frame(right)  # side by side, so the window fits a 1080p screen
+        sticks_row.pack(fill="x", pady=(8, 4))
         for stick, title in [("left_stick", "Left stick"), ("right_stick", "Right stick")]:
-            frame = ttk.LabelFrame(right, text=title, padding=6)
-            frame.pack(fill="x", pady=(8, 4))
+            frame = ttk.LabelFrame(sticks_row, text=title, padding=6)
+            frame.pack(side="left", fill="y", padx=(0, 6))
             var = tk.StringVar()
             self.mode_vars[stick] = var
             modes = ttk.Frame(frame)
@@ -137,6 +142,17 @@ class App:
                                            lambda s=stick, d=d: self.profile[s][d],
                                            lambda v, s=stick, d=d: self.set_value((s, d), v))
                 self.direction_widgets[stick].extend(widgets)
+            ttk.Label(frame, text="Run/walk key", width=12).grid(row=5, column=0, sticky="w")
+            widgets = self.binding_row(frame, 5,
+                                       lambda s=stick: self.profile[s]["speed_key"],
+                                       lambda v, s=stick: self.set_value((s, "speed_key"), v))
+            self.direction_widgets[stick].extend(widgets)
+            ttk.Label(frame, text="Held when", width=12).grid(row=6, column=0, sticky="w")
+            box = ttk.Combobox(frame, state="readonly", width=17,
+                               values=list(SPEED_KEY_LABELS.values()))
+            box.grid(row=6, column=1, columnspan=2, sticky="w", padx=2, pady=1)
+            box.bind("<<ComboboxSelected>>", lambda e, s=stick: self.on_speed_on(s))
+            self.speed_on_boxes[stick] = box
 
         settings = ttk.LabelFrame(right, text="Settings", padding=6)
         settings.pack(fill="x", pady=4)
@@ -340,6 +356,11 @@ class App:
         setter(key)
         return "break"  # don't let Tab/Space/etc. also do their normal job
 
+    def on_speed_on(self, stick):
+        label = self.speed_on_boxes[stick].get()
+        value = next(k for k, v in SPEED_KEY_LABELS.items() if v == label)
+        self.set_value((stick, "speed_key_on"), value)
+
     def on_mode(self, stick):
         self.set_value((stick, "mode"), self.mode_vars[stick].get())
 
@@ -378,6 +399,9 @@ class App:
             state = "normal" if p[stick]["mode"] == "keys" else "disabled"
             for w in self.direction_widgets[stick]:
                 w.configure(state=state)
+            box = self.speed_on_boxes[stick]
+            box.set(SPEED_KEY_LABELS[p[stick]["speed_key_on"]])
+            box.configure(state="readonly" if state == "normal" else "disabled")
         for key, var in self.slider_vars.items():
             var.set(int(p["settings"][key]))
         self.stop_box.set(p["stop_button"])

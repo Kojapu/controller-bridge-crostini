@@ -31,6 +31,7 @@ from probe import (INTERFACE, PRODUCT_ID, VENDOR_ID, decode_buttons, decode_stic
 
 STICK_FULL = 1400          # measured: a full push is ~1400-1650 from centre
 CALIBRATION_REPORTS = 20   # ~0.25 s of reports used to find each stick's resting point
+SPEED_KEY_HYSTERESIS = 100  # how far below "full push" the stick must drop to count as light
 
 
 class XTest:
@@ -222,6 +223,7 @@ def run(profile, dry_run=False):
         if stick["mode"] == "keys":
             for d in profiles.DIRECTIONS:
                 out.resolve(stick[d])
+            out.resolve(stick["speed_key"])
 
     # Precompute what the loop needs so each report costs as little as possible.
     base = profile["buttons"]
@@ -236,6 +238,10 @@ def run(profile, dry_run=False):
     turbo_buttons = {b for b, m in modes.items() if m == "turbo"}
     toggle_buttons = {b for b, m in modes.items() if m == "toggle"}
     turbo_half_period = 1 / (2 * s["turbo_rate"])  # key down for half, up for half
+    full_push_sq = s["full_push"] ** 2
+    # Leaving a full push needs the stick to drop a bit below the line, so holding it right
+    # at the edge doesn't make the speed key flicker on and off.
+    full_release_sq = (s["full_push"] - SPEED_KEY_HYSTERESIS) ** 2
     key_sticks = [name for name, st in sticks.items() if st["mode"] == "keys"]
     stuck_count = 0
 
@@ -263,6 +269,7 @@ def run(profile, dry_run=False):
             held_with = {}  # button -> binding it got when pressed (kept until released)
             pressed_at = {}  # button -> time it was pressed (for turbo timing)
             toggled = {}     # toggle button -> binding it is currently holding down
+            stick_full = {"left": False, "right": False}  # is each stick at a full push?
             turbo_running = False
             last_report = time.monotonic()
             while True:
@@ -312,9 +319,18 @@ def run(profile, dry_run=False):
                 positions = {"left": decode_stick(*r[6:9]), "right": decode_stick(*r[9:12])}
                 for name in key_sticks:
                     st = sticks[name]
-                    for d in stick_directions(*positions[name], centres[name], threshold):
+                    directions = stick_directions(*positions[name], centres[name], threshold)
+                    for d in directions:
                         if st[d]:
                             wanted.add(st[d])
+                    if st["speed_key"]:
+                        dx = positions[name][0] - centres[name][0]
+                        dy = positions[name][1] - centres[name][1]
+                        dist_sq = dx * dx + dy * dy  # squared: no square root needed
+                        stick_full[name] = dist_sq > (full_release_sq if stick_full[name]
+                                                      else full_push_sq)
+                        if directions and stick_full[name] == (st["speed_key_on"] == "full"):
+                            wanted.add(st["speed_key"])
                 changed = out.update(wanted)
 
                 mouse_moving = False

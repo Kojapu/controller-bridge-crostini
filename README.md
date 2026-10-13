@@ -34,8 +34,12 @@ Keep the sticks still for the first second (calibration), then click the game wi
   - **Turbo**: key pressed repeatedly while held (speed: "Turbo presses/second" in Settings).
   - **Toggle**: one press holds the key down, the next press releases it.
   - The mode shows next to the button and applies in every layer.
-- **Sticks**: keys (4 directions), mouse, or off.
-- **Settings**: stick-to-key threshold, mouse dead zone, mouse speed, turbo speed, stop button.
+- **Sticks**: keys (4 directions), mouse, or off. In keys mode a stick can also hold a
+  **run/walk key** along with the directions:
+  - "pushed fully (run)": e.g. Shift for sprinting.
+  - "pushed lightly (walk)": for games that run by default and have a walk key.
+  - "Full push at" in Settings sets where light ends and full begins.
+- **Settings**: stick-to-key threshold, mouse dead zone, mouse speed, turbo speed, full push, stop button.
 - **Save**: `*` in the title means unsaved changes.
 - **Start / Stop**: runs the bridge. **Dry run** shows presses in the log without sending them.
 
