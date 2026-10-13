@@ -179,7 +179,7 @@ class App:
                         variable=self.dry_run, takefocus=0).grid(row=0, column=1, **pad)
         self.status = ttk.Label(run, text="Stopped")
         self.status.grid(row=1, column=0, columnspan=2, sticky="w")
-        self.log = tk.Text(run, height=9, width=48, state="disabled", takefocus=0)
+        self.log = tk.Text(run, height=9, width=62, state="disabled", takefocus=0)
         self.log.grid(row=2, column=0, columnspan=2, pady=(4, 0))
 
     def binding_row(self, parent, row, getter, setter, button=None):

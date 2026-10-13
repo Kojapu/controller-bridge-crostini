@@ -1,0 +1,51 @@
+{
+  "name": "test",
+  "buttons": {
+    "A": "j",
+    "B": "u",
+    "X": "k",
+    "Y": "h",
+    "L": "Control_L",
+    "R": "space",
+    "ZL": "",
+    "ZR": "",
+    "Plus": "Return",
+    "Minus": "Escape",
+    "Home": "",
+    "Capture": "",
+    "LStick": "",
+    "RStick": "",
+    "Up": "Up",
+    "Down": "Down",
+    "Left": "Left",
+    "Right": "Right"
+  },
+  "left_stick": {
+    "mode": "keys",
+    "up": "w",
+    "down": "s",
+    "left": "a",
+    "right": "d",
+    "speed_key": "Shift_L",
+    "speed_key_on": "full"
+  },
+  "right_stick": {
+    "mode": "off",
+    "up": "",
+    "down": "",
+    "left": "",
+    "right": "",
+    "speed_key": "",
+    "speed_key_on": "full"
+  },
+  "stop_button": "Home",
+  "settings": {
+    "stick_threshold": 500,
+    "mouse_deadzone": 250,
+    "mouse_speed": 20,
+    "turbo_rate": 10,
+    "full_push": 1100
+  },
+  "layers": [],
+  "button_modes": {}
+}

@@ -96,24 +96,28 @@ class Output:
         self.codes[binding] = code
 
     def _send(self, binding, down):
-        if self.x is None:
-            print(f"  {binding:>12} {'down' if down else 'up'}")
-        elif binding in profiles.MOUSE_BINDINGS:
+        if binding in profiles.MOUSE_BINDINGS:
             self.x.button(profiles.MOUSE_BINDINGS[binding], down)
         else:
             self.x.key(self.codes[binding], down)
 
     def update(self, wanted):
         """Make exactly the bindings in `wanted` held down. Returns True if anything changed."""
-        changed = False
-        for b in self.held - wanted:
-            self._send(b, False)
-            changed = True
-        for b in wanted - self.held:
-            self._send(b, True)
-            changed = True
+        released, pressed = self.held - wanted, wanted - self.held
+        if not released and not pressed:
+            return False
+        if self.x is None:
+            # Dry run: one line per change, plus everything held afterwards, so it's clear
+            # that e.g. "Shift_L down" happened while "a" was still held.
+            changes = [f"{b} up" for b in sorted(released)] + [f"{b} down" for b in sorted(pressed)]
+            print(f"  {', '.join(changes):<28} holding: {' + '.join(sorted(wanted)) or '-'}")
+        else:
+            for b in released:
+                self._send(b, False)
+            for b in pressed:
+                self._send(b, True)
         self.held = wanted
-        return changed
+        return True
 
     def move(self, dx, dy):
         if self.x:
