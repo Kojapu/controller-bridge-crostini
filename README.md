@@ -16,6 +16,16 @@ Crostini can pass the controller through over USB, but Linux apps can't use it a
 sudo apt install python3-usb python3-tk
 ```
 
+## Launcher shortcut
+
+```bash
+python3 install_shortcut.py
+```
+
+Adds **Controller Bridge** to the ChromeOS launcher (search for it, or look in the
+"Linux apps" folder). Right-click it → **Pin to shelf** to keep it on the shelf.
+Run it again after moving the project folder; remove it with `--remove`.
+
 ## Before each session
 
 1. Plug in the controller.
@@ -159,6 +169,8 @@ without one.
 | `gui.py` | Profile editor and bridge launcher |
 | `bridge.py` | The bridge itself |
 | `profiles.py` | Loading, saving and checking profiles |
+| `install_shortcut.py` | Adds/removes the ChromeOS launcher shortcut |
+| `icon.png` | App icon |
 | `live.py` | Sends live button/stick state from the bridge to the GUI (only while a GUI is open) |
 | `probe.py` | Low-level controller test: prints raw button and stick values |
 | `profiles/` | One JSON file per game |

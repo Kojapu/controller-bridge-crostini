@@ -4,7 +4,6 @@ Skipped when there is no display (e.g. on a server).
 """
 import collections
 import os
-import shutil
 import tempfile
 import tkinter as tk
 import types
@@ -33,15 +32,25 @@ def shared_root():
     return _root
 
 
+# Known values the tests rely on (like the LEGO Batman profile as shipped).
+TEST_PROFILE = {
+    "name": "LEGO Batman",
+    "buttons": {"A": "j", "B": "u", "X": "k", "Y": "h", "L": "Control_L", "R": "space",
+                "Plus": "Return", "Minus": "Escape"},
+    "left_stick": {"mode": "keys", "deadzone": 500},
+    "right_stick": {"mode": "off", "deadzone": 500},
+}
+
+
 class GuiTest(unittest.TestCase):
     def setUp(self):
         if shared_root() is None:
             self.skipTest("needs a display")
-        # Work on copies of the included profiles in a temporary folder.
+        # A temporary profiles folder with a fixed test profile, so the tests don't
+        # depend on (or touch) your real profiles.
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         folder = Path(tmp.name) / "profiles"
-        shutil.copytree(profiles.PROFILES_DIR, folder)
         for target, value in [(profiles, ("PROFILES_DIR", folder)),
                               (profiles, ("CONFIG_FILE", Path(tmp.name) / "config.json"))]:
             patcher = mock.patch.object(target, *value)
@@ -65,6 +74,7 @@ class GuiTest(unittest.TestCase):
         self.root = tk.Toplevel(shared_root())
         self.root.withdraw()
         self.addCleanup(self.root.destroy)
+        profiles.save(profiles.normalise(TEST_PROFILE), "lego-batman")
         # Own mailbox: never take over the live view of a real open GUI.
         self.live_path = str(Path(tmp.name) / "live.sock")
         self.app = gui.App(self.root, live_path=self.live_path)

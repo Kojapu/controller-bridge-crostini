@@ -22,6 +22,8 @@ import live
 import profiles
 
 PROJECT_DIR = profiles.PROJECT_DIR
+# Tk keeps only the first letter capitalised ("ControllerBridge" would become this).
+WINDOW_CLASS = "Controllerbridge"
 LOG_FILE = PROJECT_DIR / "bridge.log"
 
 BUTTON_GROUPS = [
@@ -816,7 +818,13 @@ class App:
 def main():
     if not os.environ.get("DISPLAY"):
         sys.exit("No display found. Run this from the Crostini terminal.")
-    root = tk.Tk()
+    # The class name lets ChromeOS match this window to its launcher shortcut
+    # (StartupWMClass in install_shortcut.py), so the shelf shows our icon.
+    root = tk.Tk(className=WINDOW_CLASS)
+    try:
+        root.iconphoto(True, tk.PhotoImage(file=str(PROJECT_DIR / "icon.png")))
+    except tk.TclError:
+        pass  # no icon is fine
     App(root)
     root.mainloop()
 
