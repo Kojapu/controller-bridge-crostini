@@ -39,6 +39,52 @@ SLIDERS = [("mouse_speed", "Mouse speed", 5, 60),
            ("full_push", "Full push at (run/walk)", 600, 1400)]
 
 
+class SliderField:
+    """A slider plus a number box for the same value; either one can be used.
+
+    Typed numbers apply on Enter, on leaving the box, or via its arrows, and are
+    clamped to the allowed range. Text that isn't a number is reverted.
+    """
+
+    def __init__(self, parent, lo, hi, length, increment, on_change, on_focus):
+        self.lo, self.hi, self.on_change = lo, hi, on_change
+        self.current = lo
+        self.slider_var = tk.DoubleVar()
+        self.text = tk.StringVar()
+        self.scale = ttk.Scale(parent, from_=lo, to=hi, variable=self.slider_var,
+                               length=length, command=lambda v: self.commit(float(v)))
+        self.box = ttk.Spinbox(parent, from_=lo, to=hi, increment=increment, width=6,
+                               textvariable=self.text, command=self.commit_text)
+        for event in ("<Return>", "<KP_Enter>", "<FocusOut>"):
+            self.box.bind(event, self.commit_text)
+        self.box.bind("<FocusIn>", lambda e: on_focus())
+
+    def commit_text(self, _event=None):
+        try:
+            value = float(self.text.get().strip())
+        except ValueError:
+            self.show(self.current)  # not a number: put the last good value back
+            return
+        self.commit(value)
+
+    def commit(self, value):
+        value = int(round(min(max(value, self.lo), self.hi)))
+        changed = value != self.current
+        self.show(value)
+        if changed:
+            self.on_change(value)
+
+    def show(self, value):
+        self.current = value
+        self.slider_var.set(value)
+        self.text.set(str(value))
+
+    def set_enabled(self, enabled):
+        flag = ["!disabled"] if enabled else ["disabled"]
+        self.scale.state(flag)
+        self.box.state(flag)
+
+
 def describe(binding):
     return MOUSE_LABELS.get(binding, binding) or "—"
 
@@ -58,9 +104,8 @@ class App:
         self.button_mode_vars = {}  # controller button -> StringVar for its ▾ menu
         self.mode_labels = {}       # controller button -> "turbo"/"toggle" label
         self.speed_on_boxes = {}    # stick -> "held when" combobox
-        self.deadzone_vars = {}     # stick -> IntVar for its dead zone slider
-        self.deadzone_scales = {}
-        self.deadzone_labels = {}   # stick -> "500 (36%)" label
+        self.deadzone_fields = {}   # stick -> SliderField for its dead zone
+        self.deadzone_labels = {}   # stick -> "35%" label
 
         root.title("Controller Bridge")
         root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -157,27 +202,29 @@ class App:
             self.speed_on_boxes[stick] = box
             # Dead zone: applies in keys and mouse mode, so it isn't part of direction_widgets.
             ttk.Label(frame, text="Dead zone", width=12).grid(row=7, column=0, sticky="w")
-            var = tk.IntVar()
-            self.deadzone_vars[stick] = var
-            scale = ttk.Scale(frame, from_=profiles.DEADZONE_RANGE[0],
-                              to=profiles.DEADZONE_RANGE[1], variable=var, length=110,
-                              command=lambda v, s=stick: self.on_deadzone(s))
-            scale.grid(row=7, column=1, sticky="w", padx=2, pady=(4, 1))
-            self.deadzone_scales[stick] = scale
-            label = ttk.Label(frame, width=10)
-            label.grid(row=7, column=2, columnspan=2, sticky="w")
+            cell = ttk.Frame(frame)
+            cell.grid(row=7, column=1, columnspan=3, sticky="w", pady=(4, 1))
+            field = SliderField(cell, *profiles.DEADZONE_RANGE, length=110, increment=10,
+                                on_change=lambda v, s=stick: self.on_deadzone(s, v),
+                                on_focus=self.cancel_capture)
+            field.scale.pack(side="left", padx=2)
+            field.box.pack(side="left", padx=2)
+            self.deadzone_fields[stick] = field
+            label = ttk.Label(cell, width=5, foreground="gray")
+            label.pack(side="left")
             self.deadzone_labels[stick] = label
 
         settings = ttk.LabelFrame(right, text="Settings", padding=6)
         settings.pack(fill="x", pady=4)
-        self.slider_vars = {}
+        self.slider_fields = {}
         for i, (key, text, lo, hi) in enumerate(SLIDERS):
             ttk.Label(settings, text=text).grid(row=i, column=0, sticky="w")
-            var = tk.IntVar()
-            self.slider_vars[key] = var
-            ttk.Scale(settings, from_=lo, to=hi, variable=var, length=150,
-                      command=lambda v, k=key: self.on_slider(k)).grid(row=i, column=1, **pad)
-            ttk.Label(settings, textvariable=var, width=5).grid(row=i, column=2)
+            field = SliderField(settings, lo, hi, length=150, increment=1 if hi <= 100 else 10,
+                                on_change=lambda v, k=key: self.on_slider(k, v),
+                                on_focus=self.cancel_capture)
+            field.scale.grid(row=i, column=1, **pad)
+            field.box.grid(row=i, column=2)
+            self.slider_fields[key] = field
         stop_row = len(SLIDERS)  # below the sliders, however many there are
         ttk.Label(settings, text="Stop button").grid(row=stop_row, column=0, sticky="w")
         self.stop_box = ttk.Combobox(settings, state="readonly", width=10,
@@ -379,21 +426,25 @@ class App:
     def on_mode(self, stick):
         self.set_value((stick, "mode"), self.mode_vars[stick].get())
 
-    def on_deadzone(self, stick):
-        value = int(float(self.deadzone_vars[stick].get()))
+    def on_deadzone(self, stick, value):
         self.profile[stick]["deadzone"] = value
         self.show_deadzone(stick)
         self.update_title()
 
     def show_deadzone(self, stick):
         value = self.profile[stick]["deadzone"]
-        self.deadzone_vars[stick].set(value)
-        self.deadzone_labels[stick].configure(text=f"{value} ({value * 100 // STICK_FULL}%)")
+        self.deadzone_fields[stick].show(value)
+        self.deadzone_labels[stick].configure(text=f"{value * 100 // STICK_FULL}%")
 
-    def on_slider(self, key):
-        self.profile["settings"][key] = int(float(self.slider_vars[key].get()))
-        self.slider_vars[key].set(self.profile["settings"][key])
+    def on_slider(self, key, value):
+        self.profile["settings"][key] = value
         self.update_title()
+
+    def cancel_capture(self):
+        """Typing into a number box must not end up as a key binding."""
+        if self.capturing:
+            self.capturing = None
+            self.refresh_fields()
 
     def refresh_fields(self):
         p = self.profile
@@ -429,10 +480,9 @@ class App:
             box.set(SPEED_KEY_LABELS[p[stick]["speed_key_on"]])
             box.configure(state="readonly" if state == "normal" else "disabled")
             self.show_deadzone(stick)
-            self.deadzone_scales[stick].state(
-                ["disabled"] if p[stick]["mode"] == "off" else ["!disabled"])
-        for key, var in self.slider_vars.items():
-            var.set(int(p["settings"][key]))
+            self.deadzone_fields[stick].set_enabled(p[stick]["mode"] != "off")
+        for key, field in self.slider_fields.items():
+            field.show(int(p["settings"][key]))
         self.stop_box.set(p["stop_button"])
         self.update_title()
 

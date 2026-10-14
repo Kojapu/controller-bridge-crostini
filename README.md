@@ -64,7 +64,9 @@ Keep the sticks still for the first second (calibration), then click the game wi
   - "Full push at" in Settings sets where light ends and full begins.
 - **Dead zone** (in each stick's panel): how far the stick must move before it presses a
   key or moves the mouse. Raise it if a stick drifts on its own; lower it for quicker
-  response. Shown as a number and as a percentage of a full push.
+  response. Also shown as a percentage of a full push.
+- **Number boxes**: every slider has a box next to it. Type a value and press Enter (or click
+  elsewhere), or use its arrows. Values outside the allowed range are clamped.
 - **Settings**: mouse speed, turbo speed, full push, stop button.
 - **Save**: `*` in the title means unsaved changes.
 - **Start / Stop**: runs the bridge. **Dry run** shows presses in the log without sending them.
