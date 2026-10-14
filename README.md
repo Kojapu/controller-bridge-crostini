@@ -65,6 +65,11 @@ Keep the sticks still for the first second (calibration), then click the game wi
 - **Dead zone** (in each stick's panel): how far the stick must move before it presses a
   key or moves the mouse. Raise it if a stick drifts on its own; lower it for quicker
   response. Also shown as a percentage of a full push.
+- **Live view**: while the bridge runs, pressed buttons light up in the button list, and each
+  stick panel shows a small picture: the dot is the stick, the grey square is the dead zone
+  (blue dot = outside it, so it's doing something), the red dashed ring is "full push" (only
+  shown when a run/walk key is set). The picture uses the values in the window, so you can
+  tune the dead zone while watching; Save and restart the bridge to use them.
 - **Number boxes**: every slider has a box next to it. Type a value and press Enter (or click
   elsewhere), or use its arrows. Values outside the allowed range are clamped.
 - **Settings**: mouse speed, turbo speed, full push, stop button.
@@ -154,6 +159,7 @@ without one.
 | `gui.py` | Profile editor and bridge launcher |
 | `bridge.py` | The bridge itself |
 | `profiles.py` | Loading, saving and checking profiles |
+| `live.py` | Sends live button/stick state from the bridge to the GUI (only while a GUI is open) |
 | `probe.py` | Low-level controller test: prints raw button and stick values |
 | `profiles/` | One JSON file per game |
 | `tests/` | Automated tests (`python3 -m unittest`) |

@@ -15,6 +15,8 @@ Times in results are seconds since the timeline started (after stick calibration
 import contextlib
 import errno
 import io
+import os
+import tempfile
 from dataclasses import dataclass, field
 from unittest import mock
 
@@ -174,9 +176,14 @@ class Simulation:
         return out
 
 
-def run_bridge(profile, timeline):
-    """Run the real bridge loop (dry run) against a fake controller. Returns the Simulation."""
+def run_bridge(profile, timeline, live_path=None):
+    """Run the real bridge loop (dry run) against a fake controller. Returns the Simulation.
+
+    The live feed goes to `live_path` (a test's own mailbox), never to a real open GUI.
+    """
     sim = Simulation(timeline)
+    if live_path is None:
+        live_path = os.path.join(tempfile.gettempdir(), f"no-gui-here-{os.getpid()}.sock")
     real_update = bridge.Output.update
     real_move = bridge.Output.move
 
@@ -202,6 +209,7 @@ def run_bridge(profile, timeline):
         mock.patch.object(bridge.usb.util, "dispose_resources", noop),
         mock.patch.object(bridge.Output, "update", update),
         mock.patch.object(bridge.Output, "move", move),
+        mock.patch.object(bridge.live, "socket_path", lambda: live_path),
     ]
     output = io.StringIO()
     with contextlib.ExitStack() as stack:

@@ -16,29 +16,26 @@ import profiles
 
 import gui
 
-# One hidden Tk application for all tests; each test gets its own window inside it.
-# (Creating and destroying several Tk applications makes ttk print theme errors.)
-ROOT = None
+# One hidden Tk application shared by every GUI test (also those in other test files);
+# each test gets its own window inside it. Creating and destroying several Tk applications
+# makes ttk print theme errors. It's created on first use and lives until the run ends.
+_root = None
 
 
-def setUpModule():
-    global ROOT
-    if os.environ.get("DISPLAY"):
+def shared_root():
+    global _root
+    if _root is None and os.environ.get("DISPLAY"):
         try:
-            ROOT = tk.Tk()
-            ROOT.withdraw()
+            _root = tk.Tk()
+            _root.withdraw()
         except tk.TclError:
-            ROOT = None
-
-
-def tearDownModule():
-    if ROOT is not None:
-        ROOT.destroy()
+            pass
+    return _root
 
 
 class GuiTest(unittest.TestCase):
     def setUp(self):
-        if ROOT is None:
+        if shared_root() is None:
             self.skipTest("needs a display")
         # Work on copies of the included profiles in a temporary folder.
         tmp = tempfile.TemporaryDirectory()
@@ -65,10 +62,13 @@ class GuiTest(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-        self.root = tk.Toplevel(ROOT)
+        self.root = tk.Toplevel(shared_root())
         self.root.withdraw()
         self.addCleanup(self.root.destroy)
-        self.app = gui.App(self.root)
+        # Own mailbox: never take over the live view of a real open GUI.
+        self.live_path = str(Path(tmp.name) / "live.sock")
+        self.app = gui.App(self.root, live_path=self.live_path)
+        self.addCleanup(self.app.stop_live)
         self.app.load_profile("lego-batman")
 
     def fake_yes_no(self, title, msg, **kwargs):

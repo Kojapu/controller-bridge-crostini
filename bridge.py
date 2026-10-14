@@ -25,6 +25,7 @@ import usb.backend.libusb1
 import usb.core
 import usb.util
 
+import live
 import profiles
 from probe import (INTERFACE, PRODUCT_ID, VENDOR_ID, decode_buttons, decode_stick,
                    handshake, read)
@@ -248,6 +249,7 @@ def run(profile, dry_run=False):
     full_release_sq = (s["full_push"] - SPEED_KEY_HYSTERESIS) ** 2
     key_sticks = [name for name, st in sticks.items() if st["mode"] == "keys"]
     stuck_count = 0
+    feed = live.Sender()  # live view for the GUI; sends nothing unless a GUI is open
 
     def play(dev):
         """Drive one connection. Returns when the stop button is pressed.
@@ -287,6 +289,7 @@ def run(profile, dry_run=False):
                 # report and nothing is time-based (mouse, turbo), there's nothing to do.
                 state = r[3:12]
                 if state == last_state and not mouse_moving and not turbo_running:
+                    feed.tick(now)  # deliver a rate-limited update that's still waiting
                     continue
                 last_state = state
 
@@ -321,6 +324,10 @@ def run(profile, dry_run=False):
                         wanted.add(k)
 
                 positions = {"left": decode_stick(*r[6:9]), "right": decode_stick(*r[9:12])}
+                if feed.listening(now):
+                    rel = {n: (round(positions[n][0] - centres[n][0]),
+                               round(positions[n][1] - centres[n][1])) for n in positions}
+                    feed.publish(now, pressed, rel["left"], rel["right"])
                 for name in key_sticks:
                     st = sticks[name]
                     directions = stick_directions(*positions[name], centres[name],
@@ -393,6 +400,7 @@ def run(profile, dry_run=False):
         print("Stopped.")
     finally:
         out.release_all()
+        feed.close()  # tells an open GUI that the bridge stopped
         if out.x:
             out.x.close()
 

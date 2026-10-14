@@ -4,7 +4,8 @@
 Run:   python3 gui.py
 
 Click a binding, then press the keyboard key it should send. Use the ▾ menu next to it
-for mouse buttons, turbo/toggle, or to clear it. "Editing" switches between the normal bindings and
+for mouse buttons, turbo/toggle, or to clear it. While the bridge runs, pressed buttons
+light up and each stick panel shows where the stick is (live view, see live.py). "Editing" switches between the normal bindings and
 layers (bindings used while a hold button is held). The bridge runs as its own process, so you can close
 this window while playing and it keeps going (it uses no CPU while idle either way).
 """
@@ -13,9 +14,11 @@ import os
 import signal
 import subprocess
 import sys
+import time
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 
+import live
 import profiles
 
 PROJECT_DIR = profiles.PROJECT_DIR
@@ -85,12 +88,69 @@ class SliderField:
         self.box.state(flag)
 
 
+class StickView:
+    """Small live picture of a stick: its reach, the dead zone, the full-push ring and a
+    dot for where the stick is now. The dead zone is a square because the bridge checks
+    each direction separately."""
+
+    SIZE = 104           # canvas size in pixels
+    RADIUS = 48          # pixels for STICK_REACH
+    STICK_REACH = 1700   # a little beyond the largest measured push (~1650)
+    DOT_IDLE, DOT_ACTIVE, DOT_OFF = "#8a8a8a", "#2a7ae2", "#c4c4c4"
+
+    def __init__(self, parent):
+        c = self.canvas = tk.Canvas(parent, width=self.SIZE, height=self.SIZE,
+                                    highlightthickness=0, background="white")
+        m, r = self.SIZE / 2, self.RADIUS
+        c.create_oval(m - r, m - r, m + r, m + r, outline="#b8b8b8")
+        c.create_line(m - r, m, m + r, m, fill="#e6e6e6")
+        c.create_line(m, m - r, m, m + r, fill="#e6e6e6")
+        self.dead = c.create_rectangle(0, 0, 0, 0, fill="#ececec", outline="#a0a0a0",
+                                       dash=(2, 2))
+        self.full = c.create_oval(0, 0, 0, 0, outline="#d07070", dash=(3, 3))
+        self.dot = c.create_oval(0, 0, 0, 0, outline="", state="hidden")
+        self.mode, self.deadzone, self.position = "off", 0, None
+
+    def px(self, value):
+        return value * self.RADIUS / self.STICK_REACH
+
+    def set_zones(self, mode, deadzone, full_push=None):
+        """full_push: draw the run/walk ring at this distance, or None for no ring."""
+        self.mode, self.deadzone = mode, deadzone
+        m, d = self.SIZE / 2, self.px(deadzone)
+        self.canvas.coords(self.dead, m - d, m - d, m + d, m + d)
+        self.canvas.itemconfigure(self.dead, state="hidden" if mode == "off" else "normal")
+        if full_push:
+            f = self.px(full_push)
+            self.canvas.coords(self.full, m - f, m - f, m + f, m + f)
+        self.canvas.itemconfigure(self.full, state="normal" if full_push else "hidden")
+        self.set_position(self.position)
+
+    def set_position(self, position):
+        """position: (dx, dy) from the resting point (up/right positive), or None to hide."""
+        self.position = position
+        if position is None:
+            self.canvas.itemconfigure(self.dot, state="hidden")
+            return
+        dx, dy = position
+        m = self.SIZE / 2
+        x, y = m + self.px(dx), m - self.px(dy)  # screen y grows downward
+        self.canvas.coords(self.dot, x - 5, y - 5, x + 5, y + 5)
+        if self.mode == "off":
+            colour = self.DOT_OFF
+        elif abs(dx) < self.deadzone and abs(dy) < self.deadzone:
+            colour = self.DOT_IDLE      # inside the dead zone: nothing happens
+        else:
+            colour = self.DOT_ACTIVE
+        self.canvas.itemconfigure(self.dot, state="normal", fill=colour)
+
+
 def describe(binding):
     return MOUSE_LABELS.get(binding, binding) or "—"
 
 
 class App:
-    def __init__(self, root):
+    def __init__(self, root, live_path=None):
         self.root = root
         self.profile_id = None
         self.profile = None
@@ -106,12 +166,21 @@ class App:
         self.speed_on_boxes = {}    # stick -> "held when" combobox
         self.deadzone_fields = {}   # stick -> SliderField for its dead zone
         self.deadzone_labels = {}   # stick -> "35%" label
+        self.button_labels = {}     # controller button -> its name label (lights up)
+        self.stick_views = {}       # stick -> StickView
+        self.lit = set()            # buttons currently shown as pressed
+        self.receiver = None        # live view mailbox
+        self.live_last = 0.0        # when the last live update arrived
+        self.live_timer = None
 
         root.title("Controller Bridge")
         root.protocol("WM_DELETE_WINDOW", self.on_close)
         root.bind("<KeyPress>", self.on_key)
+        style = ttk.Style(root)
+        style.configure("Pressed.TLabel", background="#2a7ae2", foreground="white")
         self.build()
         self.refresh_profile_list(profiles.last_used())
+        self.start_live(live_path)
 
     # ---------- layout ----------
     def build(self):
@@ -160,7 +229,9 @@ class App:
                 row=row, column=0, columnspan=3, sticky="w", pady=(8, 2))
             row += 1
             for name, label in buttons:
-                ttk.Label(left, text=label, width=17).grid(row=row, column=0, sticky="w")
+                name_label = ttk.Label(left, text=label, width=17)
+                name_label.grid(row=row, column=0, sticky="w")
+                self.button_labels[name] = name_label
                 self.binding_row(left, row,
                                  lambda n=name: self.current_buttons()[n],
                                  lambda v, n=name: self.set_binding(n, v), button=name)
@@ -175,6 +246,9 @@ class App:
         for stick, title in [("left_stick", "Left stick"), ("right_stick", "Right stick")]:
             frame = ttk.LabelFrame(sticks_row, text=title, padding=6)
             frame.pack(side="left", fill="y", padx=(0, 6))
+            view = StickView(frame)
+            view.canvas.grid(row=0, column=4, rowspan=8, sticky="n", padx=(8, 0))
+            self.stick_views[stick] = view
             var = tk.StringVar()
             self.mode_vars[stick] = var
             modes = ttk.Frame(frame)
@@ -435,9 +509,19 @@ class App:
         value = self.profile[stick]["deadzone"]
         self.deadzone_fields[stick].show(value)
         self.deadzone_labels[stick].configure(text=f"{value * 100 // STICK_FULL}%")
+        self.show_stick_zones(stick)
+
+    def show_stick_zones(self, stick):
+        st = self.profile[stick]
+        has_speed_key = st["mode"] == "keys" and st["speed_key"]
+        self.stick_views[stick].set_zones(
+            st["mode"], st["deadzone"],
+            self.profile["settings"]["full_push"] if has_speed_key else None)
 
     def on_slider(self, key, value):
         self.profile["settings"][key] = value
+        for stick in self.stick_views:
+            self.show_stick_zones(stick)
         self.update_title()
 
     def cancel_capture(self):
@@ -657,6 +741,60 @@ class App:
         self.log.see("end")
         self.log.configure(state="disabled")
 
+    # ---------- live view ----------
+    def start_live(self, path=None):
+        try:
+            self.receiver = live.Receiver(path)
+        except OSError as e:
+            self.append_log(f"Live view unavailable: {e}\n")
+            return
+        # Tk calls on_live when an update arrives, so there's no polling.
+        self.root.tk.createfilehandler(self.receiver.sock, tk.READABLE, self.on_live)
+
+    def stop_live(self):
+        if self.receiver:
+            self.root.tk.deletefilehandler(self.receiver.sock)
+            self.receiver.close()
+            self.receiver = None
+
+    def on_live(self, _file=None, _mask=None):
+        message = self.receiver.latest()
+        if not message:
+            return
+        if message.get("bye"):
+            self.clear_live()
+            return
+        self.light_buttons(set(message.get("buttons", ())))
+        for stick, key in (("left_stick", "left"), ("right_stick", "right")):
+            self.stick_views[stick].set_position(tuple(message.get(key, (0, 0))))
+        self.live_last = time.monotonic()
+        if self.live_timer is None:
+            self.live_timer = self.root.after(500, self.check_live)
+
+    def check_live(self):
+        """Clear the view if updates stopped without a goodbye (e.g. the bridge crashed)."""
+        self.live_timer = None
+        if time.monotonic() - self.live_last > 1.5:
+            self.clear_live()
+        else:
+            self.live_timer = self.root.after(500, self.check_live)
+
+    def light_buttons(self, pressed):
+        for b in self.lit - pressed:
+            self.button_labels[b].configure(style="TLabel")
+        for b in pressed - self.lit:
+            if b in self.button_labels:
+                self.button_labels[b].configure(style="Pressed.TLabel")
+        self.lit = pressed & set(self.button_labels)
+
+    def clear_live(self):
+        self.light_buttons(set())
+        for view in self.stick_views.values():
+            view.set_position(None)
+        if self.live_timer is not None:
+            self.root.after_cancel(self.live_timer)
+            self.live_timer = None
+
     def on_close(self):
         if not self.confirm_discard():
             return
@@ -670,6 +808,8 @@ class App:
                 return
             if not keep:
                 self.proc.send_signal(signal.SIGTERM)
+        self.clear_live()
+        self.stop_live()
         self.root.destroy()
 
 
