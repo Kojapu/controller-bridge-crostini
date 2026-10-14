@@ -137,6 +137,16 @@ Tip: on an i3 Chromebook with 4 GB RAM, the game (Steam, Proton) ran smoothly wi
 - While the controller is passed to Linux, ChromeOS can't use it.
 - Uses about 5% of one CPU core while running, mostly spent in Crostini's virtual USB layer.
 
+## Tests
+
+```bash
+python3 -m unittest
+```
+
+Runs in under a second and needs no controller: the bridge tests use a fake controller
+and a fake clock (`tests/fake_controller.py`). The GUI tests need a display and are skipped
+without one.
+
 ## Files
 
 | File | Purpose |
@@ -146,3 +156,4 @@ Tip: on an i3 Chromebook with 4 GB RAM, the game (Steam, Proton) ran smoothly wi
 | `profiles.py` | Loading, saving and checking profiles |
 | `probe.py` | Low-level controller test: prints raw button and stick values |
 | `profiles/` | One JSON file per game |
+| `tests/` | Automated tests (`python3 -m unittest`) |
