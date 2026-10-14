@@ -10,6 +10,9 @@ normal ones. Empty bindings in a layer fall through to the normal binding.
 A button can have a mode (in every layer): "turbo" repeats its key while held, "toggle"
 holds its key down on one press and releases it on the next.
 
+Each stick has its own dead zone: how far it must move (from its resting point) before it
+presses a direction key (keys mode) or moves the mouse (mouse mode). A full push is ~1400.
+
 A stick in "keys" mode can have a speed key, held along with the direction keys either
 on a full push (run, e.g. Shift) or on a light push (walk, for games that run by default).
 """
@@ -31,9 +34,12 @@ MOUSE_BINDINGS = {"mouse_left": 1, "mouse_middle": 2, "mouse_right": 3}
 BUTTON_MODES = ["normal", "turbo", "toggle"]
 SPEED_KEY_ON = ["full", "light"]
 
+DEADZONE_DEFAULT = {"keys": 500, "mouse": 250, "off": 500}
+DEADZONE_RANGE = (50, 1200)  # outside this a stick is either twitchy or barely responds
+# Older profiles kept one shared dead zone per stick mode in "settings".
+OLD_DEADZONE_SETTINGS = {"keys": "stick_threshold", "mouse": "mouse_deadzone"}
+
 DEFAULT_SETTINGS = {
-    "stick_threshold": 500,  # stick distance before a direction key is pressed (full ~1400)
-    "mouse_deadzone": 250,   # stick distance before the mouse starts moving
     "mouse_speed": 20,       # pixels per report (~75 reports/second) at full push
     "turbo_rate": 10,        # turbo presses per second (reports arrive ~75/s, so max ~15)
     "full_push": 1100,       # stick distance counted as a full push (for speed keys)
@@ -43,9 +49,9 @@ BLANK_PROFILE = {
     "name": "New profile",
     "buttons": {b: "" for b in BUTTONS},
     "left_stick": {"mode": "keys", "up": "w", "down": "s", "left": "a", "right": "d",
-                   "speed_key": "", "speed_key_on": "full"},
+                   "speed_key": "", "speed_key_on": "full", "deadzone": 500},
     "right_stick": {"mode": "mouse", "up": "", "down": "", "left": "", "right": "",
-                    "speed_key": "", "speed_key_on": "full"},
+                    "speed_key": "", "speed_key_on": "full", "deadzone": 250},
     "stop_button": "Home",
     "settings": dict(DEFAULT_SETTINGS),
     "layers": [],
@@ -83,10 +89,16 @@ def normalise(profile):
     out = copy.deepcopy(BLANK_PROFILE)
     out["name"] = str(profile.get("name", out["name"]))
     out["buttons"].update({b: str(k) for b, k in profile.get("buttons", {}).items()})
+    old_settings = profile.get("settings", {})
     for stick in ("left_stick", "right_stick"):
         out[stick].update(profile.get(stick, {}))
+        if "deadzone" not in profile.get(stick, {}):
+            mode = out[stick]["mode"]
+            out[stick]["deadzone"] = old_settings.get(OLD_DEADZONE_SETTINGS.get(mode),
+                                                      DEADZONE_DEFAULT[mode])
     out["stop_button"] = profile.get("stop_button", out["stop_button"])
-    out["settings"].update(profile.get("settings", {}))
+    out["settings"].update({k: v for k, v in old_settings.items()
+                            if k not in OLD_DEADZONE_SETTINGS.values()})
     for layer in profile.get("layers", []):
         full = blank_layer(str(layer.get("name", "Layer")), layer.get("hold", ""))
         full["buttons"].update({b: str(k) for b, k in layer.get("buttons", {}).items()})
@@ -107,6 +119,14 @@ def validate(profile):
             problems.append(f"{stick}: mode must be one of {STICK_MODES}")
         if profile[stick]["speed_key_on"] not in SPEED_KEY_ON:
             problems.append(f"{stick}: speed_key_on must be one of {SPEED_KEY_ON}")
+        dz = profile[stick]["deadzone"]
+        lo, hi = DEADZONE_RANGE
+        name = stick.replace("_", " ").capitalize()
+        if not isinstance(dz, (int, float)) or not lo <= dz <= hi:
+            problems.append(f"{name}: dead zone must be between {lo} and {hi}")
+        elif (profile[stick]["mode"] == "keys" and profile[stick]["speed_key"]
+              and profile["settings"]["full_push"] <= dz):
+            problems.append(f"{name}: 'Full push at' must be larger than its dead zone")
     stop = profile["stop_button"]
     if stop not in BUTTONS:
         problems.append(f"Stop button {stop!r} is not a controller button")
@@ -139,8 +159,6 @@ def validate(profile):
     for key, value in profile["settings"].items():
         if not isinstance(value, (int, float)) or value <= 0:
             problems.append(f"Setting {key} must be a positive number")
-    if profile["settings"]["full_push"] <= profile["settings"]["stick_threshold"]:
-        problems.append("'Full push at' must be larger than the stick-to-key threshold")
     return problems
 
 

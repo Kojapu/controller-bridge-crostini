@@ -236,7 +236,7 @@ def run(profile, dry_run=False):
               for layer in profile["layers"]]
     stop = profile["stop_button"]
     s = profile["settings"]
-    threshold, deadzone, speed = s["stick_threshold"], s["mouse_deadzone"], s["mouse_speed"]
+    speed = s["mouse_speed"]
     mouse_sticks = [name for name, st in sticks.items() if st["mode"] == "mouse"]
     modes = profile["button_modes"]
     turbo_buttons = {b for b, m in modes.items() if m == "turbo"}
@@ -323,7 +323,8 @@ def run(profile, dry_run=False):
                 positions = {"left": decode_stick(*r[6:9]), "right": decode_stick(*r[9:12])}
                 for name in key_sticks:
                     st = sticks[name]
-                    directions = stick_directions(*positions[name], centres[name], threshold)
+                    directions = stick_directions(*positions[name], centres[name],
+                                                  st["deadzone"])
                     for d in directions:
                         if st[d]:
                             wanted.add(st[d])
@@ -339,7 +340,8 @@ def run(profile, dry_run=False):
 
                 mouse_moving = False
                 for name in mouse_sticks:
-                    dx, dy = mouse_step(*positions[name], centres[name], deadzone, speed)
+                    dx, dy = mouse_step(*positions[name], centres[name],
+                                        sticks[name]["deadzone"], speed)
                     if dx or dy:
                         out.move(dx, dy)
                         mouse_moving = changed = True

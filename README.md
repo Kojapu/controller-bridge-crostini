@@ -62,7 +62,10 @@ Keep the sticks still for the first second (calibration), then click the game wi
   - "pushed fully (run)": e.g. Shift for sprinting.
   - "pushed lightly (walk)": for games that run by default and have a walk key.
   - "Full push at" in Settings sets where light ends and full begins.
-- **Settings**: stick-to-key threshold, mouse dead zone, mouse speed, turbo speed, full push, stop button.
+- **Dead zone** (in each stick's panel): how far the stick must move before it presses a
+  key or moves the mouse. Raise it if a stick drifts on its own; lower it for quicker
+  response. Shown as a number and as a percentage of a full push.
+- **Settings**: mouse speed, turbo speed, full push, stop button.
 - **Save**: `*` in the title means unsaved changes.
 - **Start / Stop**: runs the bridge. **Dry run** shows presses in the log without sending them.
 
@@ -121,6 +124,7 @@ Tip: on an i3 Chromebook with 4 GB RAM, the game (Steam, Proton) ran smoothly wi
 | "Still no button data" | The automatic USB reset didn't help. Unplug, replug, switch it on again; the bridge continues by itself. If it happens after stopping with Home, set Capture as the stop button. |
 | "Controller is busy" | Another bridge is already running. Stop it first. |
 | Nothing happens in the game | Click the game window so it has focus. |
+| Character or mouse moves on its own | Raise that stick's dead zone. |
 
 ## Limits
 

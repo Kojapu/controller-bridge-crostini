@@ -33,9 +33,8 @@ BUTTON_GROUPS = [
 MOUSE_LABELS = {"mouse_left": "Mouse left", "mouse_middle": "Mouse middle",
                 "mouse_right": "Mouse right"}
 SPEED_KEY_LABELS = {"full": "pushed fully (run)", "light": "pushed lightly (walk)"}
-SLIDERS = [("stick_threshold", "Stick → key threshold", 200, 1200),
-           ("mouse_deadzone", "Mouse dead zone", 100, 800),
-           ("mouse_speed", "Mouse speed", 5, 60),
+STICK_FULL = 1400  # measured: a full push is ~1400-1650 from the resting point
+SLIDERS = [("mouse_speed", "Mouse speed", 5, 60),
            ("turbo_rate", "Turbo presses/second", 2, 15),
            ("full_push", "Full push at (run/walk)", 600, 1400)]
 
@@ -59,6 +58,9 @@ class App:
         self.button_mode_vars = {}  # controller button -> StringVar for its ▾ menu
         self.mode_labels = {}       # controller button -> "turbo"/"toggle" label
         self.speed_on_boxes = {}    # stick -> "held when" combobox
+        self.deadzone_vars = {}     # stick -> IntVar for its dead zone slider
+        self.deadzone_scales = {}
+        self.deadzone_labels = {}   # stick -> "500 (36%)" label
 
         root.title("Controller Bridge")
         root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -153,6 +155,18 @@ class App:
             box.grid(row=6, column=1, columnspan=2, sticky="w", padx=2, pady=1)
             box.bind("<<ComboboxSelected>>", lambda e, s=stick: self.on_speed_on(s))
             self.speed_on_boxes[stick] = box
+            # Dead zone: applies in keys and mouse mode, so it isn't part of direction_widgets.
+            ttk.Label(frame, text="Dead zone", width=12).grid(row=7, column=0, sticky="w")
+            var = tk.IntVar()
+            self.deadzone_vars[stick] = var
+            scale = ttk.Scale(frame, from_=profiles.DEADZONE_RANGE[0],
+                              to=profiles.DEADZONE_RANGE[1], variable=var, length=110,
+                              command=lambda v, s=stick: self.on_deadzone(s))
+            scale.grid(row=7, column=1, sticky="w", padx=2, pady=(4, 1))
+            self.deadzone_scales[stick] = scale
+            label = ttk.Label(frame, width=10)
+            label.grid(row=7, column=2, columnspan=2, sticky="w")
+            self.deadzone_labels[stick] = label
 
         settings = ttk.LabelFrame(right, text="Settings", padding=6)
         settings.pack(fill="x", pady=4)
@@ -164,10 +178,11 @@ class App:
             ttk.Scale(settings, from_=lo, to=hi, variable=var, length=150,
                       command=lambda v, k=key: self.on_slider(k)).grid(row=i, column=1, **pad)
             ttk.Label(settings, textvariable=var, width=5).grid(row=i, column=2)
-        ttk.Label(settings, text="Stop button").grid(row=3, column=0, sticky="w")
+        stop_row = len(SLIDERS)  # below the sliders, however many there are
+        ttk.Label(settings, text="Stop button").grid(row=stop_row, column=0, sticky="w")
         self.stop_box = ttk.Combobox(settings, state="readonly", width=10,
                                      values=profiles.BUTTONS)
-        self.stop_box.grid(row=3, column=1, sticky="w", **pad)
+        self.stop_box.grid(row=stop_row, column=1, sticky="w", **pad)
         self.stop_box.bind("<<ComboboxSelected>>", self.on_stop_change)
 
         run = ttk.LabelFrame(right, text="Bridge", padding=6)
@@ -364,6 +379,17 @@ class App:
     def on_mode(self, stick):
         self.set_value((stick, "mode"), self.mode_vars[stick].get())
 
+    def on_deadzone(self, stick):
+        value = int(float(self.deadzone_vars[stick].get()))
+        self.profile[stick]["deadzone"] = value
+        self.show_deadzone(stick)
+        self.update_title()
+
+    def show_deadzone(self, stick):
+        value = self.profile[stick]["deadzone"]
+        self.deadzone_vars[stick].set(value)
+        self.deadzone_labels[stick].configure(text=f"{value} ({value * 100 // STICK_FULL}%)")
+
     def on_slider(self, key):
         self.profile["settings"][key] = int(float(self.slider_vars[key].get()))
         self.slider_vars[key].set(self.profile["settings"][key])
@@ -402,6 +428,9 @@ class App:
             box = self.speed_on_boxes[stick]
             box.set(SPEED_KEY_LABELS[p[stick]["speed_key_on"]])
             box.configure(state="readonly" if state == "normal" else "disabled")
+            self.show_deadzone(stick)
+            self.deadzone_scales[stick].state(
+                ["disabled"] if p[stick]["mode"] == "off" else ["!disabled"])
         for key, var in self.slider_vars.items():
             var.set(int(p["settings"][key]))
         self.stop_box.set(p["stop_button"])
